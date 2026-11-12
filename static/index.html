@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Atelier Agent — AI illustration commissions</title>
+<style>
+  body { font-family: sans-serif; max-width: 720px; margin: 2em auto; padding: 0 1em; }
+  button { margin: 0.3em 0.3em 0.3em 0; padding: 0.5em 1em; }
+  #art img, #art svg { max-width: 100%; border: 1px solid #ccc; }
+  .meta { color: #555; font-size: 0.9em; white-space: pre-wrap; }
+  textarea { width: 100%; }
+</style>
+</head>
+<body>
+<h1>Atelier Agent</h1>
+<p>Commission an illustration from an AI agent. Your payment is
+<b>authorized (held)</b> up front, but only <b>captured</b> when you approve
+the finished artwork.</p>
+
+<h2>1. Describe your illustration</h2>
+<textarea id="prompt" rows="3" placeholder="e.g. A girl reading under a giant mushroom in the rain, watercolor style"></textarea>
+<br>
+<button id="btn-order">Place commission &amp; authorize payment</button>
+
+<h2>2. Payment hold</h2>
+<div class="meta" id="payment">No commission yet.</div>
+<button id="btn-authorize" disabled>Simulate buyer approval → authorize</button>
+<button id="btn-reset" type="button">Start over</button>
+<a id="approve-link" href="#" style="display:none; font-weight:bold">→ Go to PayPal to approve this payment hold (sandbox buyer login)</a>
+
+<h2>3. Artwork</h2>
+<div id="art"><p class="meta">Nothing generated yet.</p></div>
+<button id="btn-generate" disabled>Generate draft</button>
+<input id="revision" placeholder="Revision note (optional)" size="40">
+<button id="btn-revise" disabled>Regenerate with revision</button>
+
+<h2>4. Approve &amp; pay</h2>
+<button id="btn-capture" disabled>Approve artwork → capture payment</button>
+<div class="meta" id="result"></div>
+
+<script>
+let cid = null;
+const $ = id => document.getElementById(id);
+async function call(path, body) {
+  const res = await fetch(path, { method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body || {}) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.status);
+  return data;
+}
+async function act(promise) {
+  try { render(await promise); }
+  catch (e) { $("result").textContent = "Error: " + e.message; }
+}
+function render(c) {
+  $("payment").textContent =
+    "status: " + c.status +
+    "\norder: " + c.order_id +
+    (c.authorization_id ? "\nauthorization: " + c.authorization_id : "") +
+    (c.capture_id ? "\ncapture: " + c.capture_id : "") +
+    "\nprice: $" + c.price_usd.toFixed(2) +
+    "\nPayPal: " + (c.paypal_demo_mode ? "DEMO mode (simulated)" : "sandbox") +
+    "\ngenerator: " + c.generator +
+    (c.image_prompt ? "\nagent prompt: " + c.image_prompt : "");
+  // Real PayPal mode: approval happens on PayPal's site in THIS tab, and
+  // PayPal redirects back here. Demo mode: use the simulate button instead.
+  const realMode = !!(c.approve_url && c.approve_url.startsWith("http"));
+  const link = $("approve-link");
+  if (realMode && c.status === "CREATED") {
+    link.href = c.approve_url; link.style.display = "inline";
+  } else { link.style.display = "none"; }
+  $("btn-authorize").style.display = realMode ? "none" : "";
+  $("btn-authorize").disabled = c.status !== "CREATED";
+  $("btn-generate").disabled = c.status !== "AUTHORIZED";
+  $("btn-revise").disabled = c.status !== "GENERATED";
+  $("btn-capture").disabled = c.status !== "GENERATED";
+  if (c.has_preview) $("art").innerHTML = '<img src="/art/' + c.id + '">';
+}
+$("btn-order").onclick = async () => {
+  const c = await call("/api/commissions", { prompt: $("prompt").value });
+  cid = c.id;
+  localStorage.setItem("atelier_cid", cid);
+  render(c);
+};
+$("btn-reset").onclick = () => {
+  localStorage.removeItem("atelier_cid");
+  location.href = "/";
+};
+// After returning from PayPal approval (same tab), restore the commission:
+// the server authorized it in /return, so re-fetch and render it here.
+(async () => {
+  const saved = localStorage.getItem("atelier_cid");
+  if (!saved) return;
+  try {
+    const res = await fetch("/api/commissions/" + saved);
+    if (!res.ok) return;
+    cid = saved;
+    render(await res.json());
+  } catch (e) { /* server restarted etc.: start fresh */ }
+})();
+$("btn-authorize").onclick = () =>
+  act(call("/api/commissions/" + cid + "/authorize"));
+$("btn-generate").onclick = () =>
+  act(call("/api/commissions/" + cid + "/generate"));
+$("btn-revise").onclick = () =>
+  act(call("/api/commissions/" + cid + "/generate",
+           { revision_note: $("revision").value }));
+$("btn-capture").onclick = async () => {
+  await act(call("/api/commissions/" + cid + "/capture"));
+  if ($("payment").textContent.includes("CAPTURED"))
+    $("result").textContent = "Payment captured. Full artwork released. Thank you!";
+};
+</script>
+</body>
+</html>
