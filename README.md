@@ -53,6 +53,12 @@ Environment variables:
 - `generator.py` — pluggable generation (OpenAI Images API or placeholder).
 - `static/index.html` — the single-page client UI.
 
+## Feedback & development log
+
+User feedback, bugs, and improvements are tracked in
+[FEEDBACK.md](FEEDBACK.md) as structured entries (OPEN / DONE), so any
+contributor — human or AI agent — can pick up the next item cold.
+
 ## License
 
 MIT — see `LICENSE`.
